@@ -43,7 +43,7 @@ func SetTooltip(tooltip string) {
 }
 
 func addOrUpdateMenuItem(item *MenuItem) {
-	var disabled C.short
+	var disabled, isSubmenu, isSubmenuItem C.short
 	if item.disabled {
 		disabled = 1
 	}
@@ -51,12 +51,23 @@ func addOrUpdateMenuItem(item *MenuItem) {
 	if item.checked {
 		checked = 1
 	}
+	if item.isSubmenu {
+		isSubmenu = 1
+		isSubmenuItem = 0
+	}
+	if item.isSubmenuItem {
+		isSubmenu = 0
+		isSubmenuItem = 1
+	}
 	C.add_or_update_menu_item(
 		C.int(item.id),
+		C.int(item.menuId),
 		C.CString(item.title),
 		C.CString(item.tooltip),
 		disabled,
 		checked,
+		isSubmenu,
+		isSubmenuItem,
 	)
 }
 
@@ -96,4 +107,36 @@ func systray_on_exit() {
 //export systray_menu_item_selected
 func systray_menu_item_selected(cID C.int) {
 	systrayMenuItemSelected(int32(cID))
+}
+
+func createSubMenu(subMenuId int32) {
+	// NOOP
+}
+
+func addSubmenuToTray(item *MenuItem) {
+	var disabled, checked, isSubmenu, isSubmenuItem C.short
+	if item.disabled {
+		disabled = 1
+	}
+	if item.checked {
+		checked = 1
+	}
+	if item.isSubmenu {
+		isSubmenu = 1
+		isSubmenuItem = 0
+	}
+	if item.isSubmenuItem {
+		isSubmenu = 0
+		isSubmenuItem = 1
+	}
+	_, _ = C.add_sub_menu(
+		C.int(item.id),
+		C.int(item.menuId),
+		C.CString(item.title),
+		C.CString(item.tooltip),
+		disabled,
+		checked,
+		isSubmenu,
+		isSubmenuItem,
+	)
 }

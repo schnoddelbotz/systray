@@ -10,31 +10,43 @@
 {
   @public
     NSNumber* menuId;
+    NSNumber* submenuId;
     NSString* title;
     NSString* tooltip;
     short disabled;
     short checked;
+    short isSubmenu;
+    short isSubmenuItem;
 }
--(id) initWithId: (int)theMenuId
-       withTitle: (const char*)theTitle
-     withTooltip: (const char*)theTooltip
-    withDisabled: (short)theDisabled
-     withChecked: (short)theChecked;
+-(id)  initWithId: (int)theMenuId
+    withSubmenuId: (int)theSubmenuId
+        withTitle: (const char*)theTitle
+      withTooltip: (const char*)theTooltip
+     withDisabled: (short)theDisabled
+      withChecked: (short)theChecked
+    withIsSubmenu: (short)theisSubmenu
+withIsSubmenuItem: (short)theisSubmenuItem;
      @end
      @implementation MenuItem
      -(id) initWithId: (int)theMenuId
+        withSubmenuId: (int)theSubmenuId
             withTitle: (const char*)theTitle
           withTooltip: (const char*)theTooltip
          withDisabled: (short)theDisabled
           withChecked: (short)theChecked
+        withIsSubmenu: (short)theisSubmenu
+    withIsSubmenuItem: (short)theisSubmenuItem;
 {
   menuId = [NSNumber numberWithInt:theMenuId];
+  submenuId = [NSNumber numberWithInt:theSubmenuId];
   title = [[NSString alloc] initWithCString:theTitle
                                    encoding:NSUTF8StringEncoding];
   tooltip = [[NSString alloc] initWithCString:theTooltip
                                      encoding:NSUTF8StringEncoding];
   disabled = theDisabled;
   checked = theChecked;
+  isSubmenu = theisSubmenu;
+  isSubmenuItem = theisSubmenuItem;
   return self;
 }
 @end
@@ -49,6 +61,7 @@
 {
   NSStatusItem *statusItem;
   NSMenu *menu;
+  NSMutableDictionary *submenus;
   NSCondition* cond;
 }
 
@@ -58,6 +71,7 @@
 {
   self->statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
   self->menu = [[NSMenu alloc] init];
+  self->submenus = [@{} mutableCopy];
   [self->menu setAutoenablesItems: FALSE];
   [self->statusItem setMenu:self->menu];
   systray_ready();
@@ -98,21 +112,26 @@
 - (IBAction)menuHandler:(id)sender
 {
   NSNumber* menuId = [sender representedObject];
+  NSMutableDictionary *submenus;
   systray_menu_item_selected(menuId.intValue);
 }
 
 - (void) add_or_update_menu_item:(MenuItem*) item
 {
   NSMenuItem* menuItem;
-  int existedMenuIndex = [menu indexOfItemWithRepresentedObject: item->menuId];
-  if (existedMenuIndex == -1) {
-    menuItem = [menu addItemWithTitle:item->title action:@selector(menuHandler:) keyEquivalent:@""];
+  NSMenu* parentMenu = menu;
+  if (item->isSubmenuItem == 1){
+    parentMenu = submenus[item->submenuId];
+  }
+  int existedMenuIndex = [parentMenu indexOfItemWithRepresentedObject: item->menuId];
+  if (existedMenuIndex == -1){
+    menuItem = [parentMenu addItemWithTitle:item->title action:@selector(menuHandler:) keyEquivalent:@""];
     [menuItem setTarget:self];
     [menuItem setRepresentedObject: item->menuId];
 
   }
   else {
-    menuItem = [menu itemAtIndex: existedMenuIndex];
+    menuItem = [parentMenu itemAtIndex: existedMenuIndex];
     [menuItem setTitle:item->title];
   }
   [menuItem setToolTip:item->tooltip];
@@ -125,6 +144,24 @@
     menuItem.state = NSControlStateValueOn;
   } else {
     menuItem.state = NSControlStateValueOff;
+  }
+}
+
+- (void) add_sub_menu:(MenuItem*) item
+{
+  NSMenuItem* menuItem;
+  NSMenu* subMenu;
+  int existedMenuIndex = [menu indexOfItemWithRepresentedObject: item->menuId];
+  if (existedMenuIndex == -1) {
+    menuItem = [menu addItemWithTitle:item->title action:@selector(menuHandler:) keyEquivalent:@""];
+    subMenu = [[NSMenu alloc] init];
+    [menuItem setTarget:self];
+    [menuItem setSubmenu: subMenu];
+    [menuItem setRepresentedObject: item->menuId];
+    [submenus setObject:subMenu forKey:item->submenuId];
+  } else {
+    menuItem = [menu itemAtIndex: existedMenuIndex];
+    [menuItem setTitle:item->title];
   }
 }
 
@@ -219,11 +256,36 @@ void setTooltip(char* ctooltip) {
   runInMainThread(@selector(setTooltip:), (id)tooltip);
 }
 
-void add_or_update_menu_item(int menuId, char* title, char* tooltip, short disabled, short checked) {
-  MenuItem* item = [[MenuItem alloc] initWithId: menuId withTitle: title withTooltip: tooltip withDisabled: disabled withChecked: checked];
+void add_or_update_menu_item(
+  int menuId, int submenuId, char* title, char* tooltip, short disabled, short checked,
+  short isSubmenu, short isSubmenuItem) {
+  MenuItem* item = [[MenuItem alloc] initWithId: menuId
+          withSubmenuId: submenuId
+              withTitle: title
+            withTooltip: tooltip
+           withDisabled: disabled
+            withChecked: checked
+          withIsSubmenu: isSubmenu
+            withIsSubmenuItem: isSubmenuItem];
   free(title);
   free(tooltip);
   runInMainThread(@selector(add_or_update_menu_item:), (id)item);
+}
+
+void add_sub_menu(
+  int menuId, int submenuId, char* title, char* tooltip, short disabled, short checked,
+  short isSubmenu, short isSubmenuItem) {
+  MenuItem* item = [[MenuItem alloc] initWithId: menuId
+          withSubmenuId: submenuId
+              withTitle: title
+            withTooltip: tooltip
+           withDisabled: disabled
+            withChecked: checked
+          withIsSubmenu: isSubmenu
+            withIsSubmenuItem: isSubmenuItem];
+  free(title);
+  free(tooltip);
+  runInMainThread(@selector(add_sub_menu:), (id)item);
 }
 
 void add_separator(int menuId) {

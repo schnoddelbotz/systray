@@ -20,6 +20,14 @@ var (
 	hasQuit    = int64(0)
 )
 
+const (
+	ItemDefault        = 0
+	ItemSeparator byte = 1 << iota
+	ItemChecked
+	ItemCheckable
+	ItemDisabled
+)
+
 // MenuItem is used to keep track each menu item of systray
 // Don't create it directly, use the one systray.AddMenuItem() returned
 type MenuItem struct {
@@ -28,6 +36,8 @@ type MenuItem struct {
 
 	// id uniquely identify a menu item, not supposed to be modified
 	id int32
+	// menuId uniquely identify a menu the menu item belogns to
+	menuId int32
 	// title is the text shown on menu item
 	title string
 	// tooltip is the text shown when pointing to menu item
@@ -35,7 +45,11 @@ type MenuItem struct {
 	// disabled menu item is grayed out and has no effect when clicked
 	disabled bool
 	// checked menu item has a tick before the title
-	checked bool
+	checked       bool
+	checkable     bool
+	isSeparator   bool
+	isSubmenu     bool
+	isSubmenuItem bool
 }
 
 var (
@@ -92,10 +106,80 @@ func Quit() {
 // that notifies whenever that menu item is clicked.
 //
 // It can be safely invoked from different goroutines.
-func AddMenuItem(title string, tooltip string) *MenuItem {
+func AddMenuItem(title string, tooltip string, flagsArr ...byte) *MenuItem {
 	id := atomic.AddInt32(&currentID, 1)
-	item := &MenuItem{nil, id, title, tooltip, false, false}
-	item.ClickedCh = make(chan struct{})
+
+	flags := byte(0)
+	if len(flagsArr) > 0 {
+		flags = flagsArr[0]
+		if ItemSeparator&flags != 0 {
+			// remove other flags if separator
+			flags = ItemSeparator
+		} else if ItemCheckable&flags == 0 {
+			// remove "checked" flag if not checkable
+			flags &= ^ItemChecked
+		}
+	}
+
+	item := &MenuItem{
+		ClickedCh:     make(chan struct{}),
+		id:            id,
+		title:         title,
+		tooltip:       tooltip,
+		isSubmenuItem: false,
+		isSubmenu:     false,
+		isSeparator:   ItemSeparator&flags != 0,
+		checkable:     ItemCheckable&flags != 0,
+		checked:       ItemChecked&flags != 0,
+		disabled:      ItemDisabled&flags != 0,
+	}
+
+	item.update()
+	return item
+}
+
+// AddSubMenu adds a sub menu to the systray and
+// and returns an id to access to accesss the menu
+func AddSubMenu(title string) *MenuItem {
+	subMenuId := atomic.AddInt32(&currentID, 1)
+	createSubMenu(subMenuId)
+
+	item := &MenuItem{
+		ClickedCh:     make(chan struct{}),
+		id:            atomic.AddInt32(&currentID, 1),
+		title:         title,
+		menuId:        subMenuId,
+		isSubmenuItem: false,
+	}
+	if atomic.LoadInt64(&hasStarted) == 1 {
+		addSubmenuToTray(item)
+	}
+	item.update()
+	return item
+}
+
+func (sitem *MenuItem) AddSubMenuItem(title, tooltip string, flags byte) *MenuItem {
+	if ItemSeparator&flags != 0 {
+		// remove other flags if separator
+		flags = ItemSeparator
+	} else if ItemCheckable&flags == 0 {
+		// remove "checked" flag if not checkable
+		flags &= ^ItemChecked
+	}
+
+	item := &MenuItem{
+		ClickedCh:     make(chan struct{}),
+		id:            atomic.AddInt32(&currentID, 1),
+		title:         title,
+		tooltip:       tooltip,
+		menuId:        sitem.menuId,
+		isSeparator:   ItemSeparator&flags != 0,
+		isSubmenuItem: true,
+		checkable:     ItemCheckable&flags != 0,
+		checked:       ItemChecked&flags != 0,
+		disabled:      ItemDisabled&flags != 0,
+	}
+
 	item.update()
 	return item
 }
